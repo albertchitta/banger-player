@@ -1,16 +1,12 @@
 {
   "name": "banger-player",
+  "main": "main.js",
   "author": "Albert Chittaphong",
-  "private": true,
   "version": "0.0.0",
-  "type": "module",
+  "repository": "https://github.com/albertchitta/banger-player.git",
+  "description": "Custom music bot for Discord",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
-  },
-  "devDependencies": {
-    "vite": "^5.2.0"
+    "start": "node main.js"
   },
   "dependencies": {
     "@discord-player/extractor": "^4.4.7",

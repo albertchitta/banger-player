@@ -1,6 +1,6 @@
 module.exports = {
   app: {
-      token: import.meta.env.VITE_BOT_TOKEN,
+      token: 'xxx',
       playing: 'by the Community ❤️',
       global: true,
       guild: 'xxx',
