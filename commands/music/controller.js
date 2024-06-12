@@ -35,6 +35,7 @@ module.exports = {
 
         const back = new ButtonBuilder()
             .setLabel(EmojiState ? emojis.back : ('Back'))
+            .setLabel(emojis.back)
             .setCustomId('back')
             .setStyle('Primary');
 

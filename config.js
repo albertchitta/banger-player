@@ -1,13 +1,15 @@
+require('dotenv').config()
+
 module.exports = {
   app: {
-      token: 'xxx',
-      playing: 'by the Community ❤️',
+      token: process.env.BOT_TOKEN,
+      playing: 'bangers',
       global: true,
       guild: 'xxx',
       extraMessages: false,
       loopMessage: false,
       lang: 'en',
-      enableEmojis: false,
+      enableEmojis: true,
   },
 
   emojis:{
@@ -30,9 +32,9 @@ module.exports = {
       maxVol: 100,
       spotifyBridge: true,
       volume: 75,
-      leaveOnEmpty: true,
+      leaveOnEmpty: false,
       leaveOnEmptyCooldown: 30000,
-      leaveOnEnd: true,
+      leaveOnEnd: false,
       leaveOnEndCooldown: 30000,
       discordPlayer: {
           ytdlOptions: {
