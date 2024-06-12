@@ -1,24 +1,32 @@
-import './style.css'
-import javascriptLogo from './javascript.svg'
-import viteLogo from '/vite.svg'
-import { setupCounter } from './counter.js'
+const { Player } = require('discord-player');
+const { Client, GatewayIntentBits } = require('discord.js');
 
-document.querySelector('#app').innerHTML = `
-  <div>
-    <a href="https://vitejs.dev" target="_blank">
-      <img src="${viteLogo}" class="logo" alt="Vite logo" />
-    </a>
-    <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript" target="_blank">
-      <img src="${javascriptLogo}" class="logo vanilla" alt="JavaScript logo" />
-    </a>
-    <h1>Hello Vite!</h1>
-    <div class="card">
-      <button id="counter" type="button"></button>
-    </div>
-    <p class="read-the-docs">
-      Click on the Vite logo to learn more
-    </p>
-  </div>
-`
+global.client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.GuildVoiceStates,
+        GatewayIntentBits.MessageContent
+    ],
+    disableMentions: 'everyone',
+});
 
-setupCounter(document.querySelector('#counter'))
+client.config = require('./config');
+
+const player = new Player(client, client.config.opt.discordPlayer);
+player.extractors.loadDefault();
+
+console.clear()
+require('./loader');
+
+client.login(client.config.app.token)
+.catch(async (e) => {
+    if(e.message === 'An invalid token was provided.'){
+    require('./process_tools')
+    .throwConfigError('app', 'token', '\n\t   ❌ Invalid Token Provided! ❌ \n\tchange the token in the config file\n')}
+
+    else{
+        console.error('❌ An error occurred while trying to login to the bot! ❌ \n', e)
+    }
+});
