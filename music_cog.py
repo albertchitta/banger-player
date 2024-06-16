@@ -66,7 +66,9 @@ class music_cog(commands.Cog):
                     return
             else:
                 await self.vc.move_to(self.music_queue[0][1])
-            
+
+            await self.bot.change_presence(activity=discord.Game(f"{self.music_queue[0][0]['title']}"))
+
             # Remove the first element as you are currently playing it
             self.music_queue.pop(0)
             loop = asyncio.get_event_loop()
@@ -93,9 +95,9 @@ class music_cog(commands.Cog):
                 await ctx.send("```Could not download the song. Incorrect format try another keyword. This could be due to playlist or a livestream format.```")
             else:
                 if self.is_playing:
-                    await ctx.send(f"**#{len(self.music_queue)+2} -'{song['title']}'** ***({song['duration']})*** added to the queue")  
+                    await ctx.send(f"**#{len(self.music_queue)+2} -{song['title']}** (`{song['duration']}`) added to the queue")  
                 else:
-                    await ctx.send(f"**'{song['title']}'** ***({song['duration']})*** added to the queue")  
+                    await ctx.send(f"**{song['title']}** (`{song['duration']}`) added to the queue")  
                 self.music_queue.append([song, voice_channel])
                 if self.is_playing == False:
                     await self.play_music(ctx)
@@ -122,7 +124,7 @@ class music_cog(commands.Cog):
     async def skip(self, ctx):
         if self.vc != None and self.vc:
             self.vc.stop()
-            #try to play next in the queue if it exists
+            # Try to play next in the queue if it exists
             await self.play_music(ctx)
 
 
@@ -153,4 +155,4 @@ class music_cog(commands.Cog):
     @commands.command(name="remove", help="Removes last song added to queue")
     async def re(self, ctx):
         self.music_queue.pop()
-        await ctx.send("```last song removed```")
+        await ctx.send("```Last song removed```")
