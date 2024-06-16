@@ -28,9 +28,10 @@ class music_cog(commands.Cog):
     def search_yt(self, item):
         if item.startswith("https://"):
             title = self.ytdl.extract_info(item, download=False)["title"]
-            return{'source':item, 'title':title}
+            duration = self.ytdl.extract_info(item, download=False)["duration"]
+            return{'source':item, 'title':title, 'duration':duration}
         search = VideosSearch(item, limit=1)
-        return{'source':search.result()["result"][0]["link"], 'title':search.result()["result"][0]["title"]}
+        return{'source':search.result()["result"][0]["link"], 'title':search.result()["result"][0]["title"], 'duration':search.result()["result"][0]["duration"]}
 
     async def play_next(self):
         if len(self.music_queue) > 0:
@@ -92,9 +93,9 @@ class music_cog(commands.Cog):
                 await ctx.send("```Could not download the song. Incorrect format try another keyword. This could be due to playlist or a livestream format.```")
             else:
                 if self.is_playing:
-                    await ctx.send(f"**#{len(self.music_queue)+2} -'{song['title']}'** added to the queue")  
+                    await ctx.send(f"**#{len(self.music_queue)+2} -'{song['title']}'** ***({song['duration']})*** added to the queue")  
                 else:
-                    await ctx.send(f"**'{song['title']}'** added to the queue")  
+                    await ctx.send(f"**'{song['title']}'** ***({song['duration']})*** added to the queue")  
                 self.music_queue.append([song, voice_channel])
                 if self.is_playing == False:
                     await self.play_music(ctx)
