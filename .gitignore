@@ -26,3 +26,5 @@ pnpm-lock.yaml
 *.sln
 *.sw?
 .env
+token.txt
+__pycache__
