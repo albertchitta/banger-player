@@ -77,7 +77,9 @@ class music_cog(commands.Cog):
             self.vc.play(discord.FFmpegPCMAudio(song, executable= "ffmpeg.exe", **self.FFMPEG_OPTIONS), after=lambda e: asyncio.run_coroutine_threadsafe(self.play_next(), self.bot.loop))
 
         else:
+            await self.bot.change_presence(activity=discord.Game(f"Bangers"))
             self.is_playing = False
+
 
     @commands.command(name="play", aliases=["p","playing"], help="Plays a selected song from youtube")
     async def play(self, ctx, *args):
