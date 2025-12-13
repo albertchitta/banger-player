@@ -1,7 +1,6 @@
 from ast import alias
 import discord
 from discord.ext import commands
-from youtubesearchpython import VideosSearch
 from yt_dlp import YoutubeDL
 import asyncio
 
@@ -30,8 +29,19 @@ class music_cog(commands.Cog):
             title = self.ytdl.extract_info(item, download=False)["title"]
             duration = self.ytdl.extract_info(item, download=False)["duration"]
             return{'source':item, 'title':title, 'duration':duration}
-        search = VideosSearch(item, limit=1)
-        return{'source':search.result()["result"][0]["link"], 'title':search.result()["result"][0]["title"], 'duration':search.result()["result"][0]["duration"]}
+        
+        # Use yt-dlp to search YouTube
+        search_ydl = YoutubeDL({'default_search': 'ytsearch1', 'noplaylist': True, 'quiet': True})
+        try:
+            info = search_ydl.extract_info(item, download=False)
+            if 'entries' in info:
+                video = info['entries'][0]
+            else:
+                video = info
+            return {'source': video['webpage_url'], 'title': video['title'], 'duration': video.get('duration', 0)}
+        except Exception as e:
+            print(f"Error searching: {e}")
+            return None
 
     async def play_next(self):
         if len(self.music_queue) > 0:
@@ -45,7 +55,7 @@ class music_cog(commands.Cog):
             loop = asyncio.get_event_loop()
             data = await loop.run_in_executor(None, lambda: self.ytdl.extract_info(m_url, download=False))
             song = data['url']
-            self.vc.play(discord.FFmpegPCMAudio(song, executable= "ffmpeg.exe", **self.FFMPEG_OPTIONS), after=lambda e: asyncio.run_coroutine_threadsafe(self.play_next(), self.bot.loop))
+            self.vc.play(discord.FFmpegPCMAudio(song, executable= "ffmpeg", **self.FFMPEG_OPTIONS), after=lambda e: asyncio.run_coroutine_threadsafe(self.play_next(), self.bot.loop))
         else:
             self.is_playing = False
 
@@ -74,7 +84,7 @@ class music_cog(commands.Cog):
             loop = asyncio.get_event_loop()
             data = await loop.run_in_executor(None, lambda: self.ytdl.extract_info(m_url, download=False))
             song = data['url']
-            self.vc.play(discord.FFmpegPCMAudio(song, executable= "ffmpeg.exe", **self.FFMPEG_OPTIONS), after=lambda e: asyncio.run_coroutine_threadsafe(self.play_next(), self.bot.loop))
+            self.vc.play(discord.FFmpegPCMAudio(song, executable= "ffmpeg", **self.FFMPEG_OPTIONS), after=lambda e: asyncio.run_coroutine_threadsafe(self.play_next(), self.bot.loop))
 
         else:
             await self.bot.change_presence(activity=discord.Game(f"Bangers"))
