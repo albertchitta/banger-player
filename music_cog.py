@@ -14,7 +14,11 @@ class music_cog(commands.Cog):
 
         # 2D array containing [song, channel]
         self.music_queue = []
-        self.YDL_OPTIONS = {'format': 'bestaudio/best', 'noplaylist': 'True'}
+        self.YDL_OPTIONS = {
+            'format': 'bestaudio/best',
+            'noplaylist': True,
+            'js_runtimes': {'node': {}}
+        }
         self.FFMPEG_OPTIONS = {
             'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
             'options': '-vn'
@@ -68,7 +72,12 @@ class music_cog(commands.Cog):
 
             # Try to connect to voice channel if you are not already connected
             if self.vc == None or not self.vc.is_connected():
-                self.vc = await self.music_queue[0][1].connect()
+                try:
+                    self.vc = await self.music_queue[0][1].connect()
+                except RuntimeError as exc:
+                    await ctx.send(f"```Voice connection failed: {exc}```")
+                    self.is_playing = False
+                    return
 
                 # In case we fail to connect
                 if self.vc == None:
