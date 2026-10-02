@@ -27,6 +27,14 @@ class music_cog(commands.Cog):
         self.vc = None
         self.ytdl = YoutubeDL(self.YDL_OPTIONS)
 
+    def create_audio_source(self, data):
+        ffmpeg_options = self.FFMPEG_OPTIONS.copy()
+        http_headers = data.get('http_headers', {})
+        if http_headers:
+            headers = '\r\n'.join(f'{key}: {value}' for key, value in http_headers.items())
+            ffmpeg_options['before_options'] += f' -headers "{headers}"'
+        return discord.FFmpegPCMAudio(data['url'], executable="ffmpeg", **ffmpeg_options)
+
      # Searching the item on youtube
     def search_yt(self, item):
         if item.startswith("https://"):
@@ -58,8 +66,7 @@ class music_cog(commands.Cog):
             self.music_queue.pop(0)
             loop = asyncio.get_event_loop()
             data = await loop.run_in_executor(None, lambda: self.ytdl.extract_info(m_url, download=False))
-            song = data['url']
-            self.vc.play(discord.FFmpegPCMAudio(song, executable= "ffmpeg", **self.FFMPEG_OPTIONS), after=lambda e: asyncio.run_coroutine_threadsafe(self.play_next(), self.bot.loop))
+            self.vc.play(self.create_audio_source(data), after=lambda e: asyncio.run_coroutine_threadsafe(self.play_next(), self.bot.loop))
         else:
             self.is_playing = False
 
@@ -92,8 +99,7 @@ class music_cog(commands.Cog):
             self.music_queue.pop(0)
             loop = asyncio.get_event_loop()
             data = await loop.run_in_executor(None, lambda: self.ytdl.extract_info(m_url, download=False))
-            song = data['url']
-            self.vc.play(discord.FFmpegPCMAudio(song, executable= "ffmpeg", **self.FFMPEG_OPTIONS), after=lambda e: asyncio.run_coroutine_threadsafe(self.play_next(), self.bot.loop))
+            self.vc.play(self.create_audio_source(data), after=lambda e: asyncio.run_coroutine_threadsafe(self.play_next(), self.bot.loop))
 
         else:
             await self.bot.change_presence(activity=discord.Game(f"Bangers"))
