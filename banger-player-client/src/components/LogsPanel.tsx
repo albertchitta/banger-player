@@ -63,10 +63,11 @@ export function LogsPanel({
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-        <label className="space-y-2 text-sm text-white/70">
+        <div className="space-y-2 text-sm text-white/70">
           <span className="block">Discord server</span>
           <Select
             className="w-full"
+            aria-label="Discord server"
             options={guilds}
             value={logGuildId}
             placeholder="Select a server"
@@ -76,12 +77,13 @@ export function LogsPanel({
             disabled={guildsLoading || guilds.length === 0}
             onChange={onGuildChange}
           />
-        </label>
+        </div>
 
-        <label className="space-y-2 text-sm text-white/70">
+        <div className="space-y-2 text-sm text-white/70">
           <span className="block">Text channel</span>
           <Select
             className="w-full"
+            aria-label="Text channel"
             options={selectedGuild?.textChannels ?? []}
             value={logChannelId}
             placeholder="Select a text channel"
@@ -91,7 +93,7 @@ export function LogsPanel({
             disabled={!selectedGuild}
             onChange={onChannelChange}
           />
-        </label>
+        </div>
 
         <Button
           color="brand"

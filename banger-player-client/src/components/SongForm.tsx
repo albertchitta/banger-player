@@ -1,4 +1,5 @@
 import { Button, Input, Select, Surface } from "@cladd-ui/react";
+import { useState } from "react";
 import type { FormEventHandler } from "react";
 import type { DiscordGuild, DiscordUser } from "../types";
 
@@ -39,7 +40,21 @@ export function SongForm({
   onSubmit,
   onRefreshGuilds,
 }: SongFormProps) {
+  const [songQueryFocused, setSongQueryFocused] = useState(false);
+  const [songQueryTouched, setSongQueryTouched] = useState(false);
+  const [songQueryEdited, setSongQueryEdited] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const selectedGuild = guilds.find((guild) => guild.id === guildId);
+  const selectedChannel = selectedGuild?.channels.find(
+    (channel) => channel.id === channelId,
+  );
+  const songQueryInvalid =
+    songQueryEdited && songQueryTouched && !songQueryFocused && !songQuery.trim();
+  const missingFields = [
+    !guildId && "Discord server",
+    !channelId && "voice channel",
+    !songQuery.trim() && "song name",
+  ].filter(Boolean);
 
   return (
     <Surface
@@ -57,12 +72,24 @@ export function SongForm({
         play or queue it there.
       </p>
 
-      <form className="mt-4 space-y-4" onSubmit={onSubmit}>
+      <form
+        className="mt-4 space-y-4"
+        onSubmit={(event) => {
+          setSubmitAttempted(true);
+          if (missingFields.length > 0) {
+            event.preventDefault();
+            return;
+          }
+          onSubmit(event);
+        }}
+      >
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="space-y-2 text-sm text-white/70">
+          <div className="space-y-2 text-sm text-white/70">
             <span className="block">Discord server</span>
             <Select
               className="w-full"
+              aria-label="Discord server"
+              type="button"
               options={guilds}
               value={guildId}
               placeholder="Select a server"
@@ -71,13 +98,17 @@ export function SongForm({
               keyboardHints={false}
               disabled={guildsLoading || guilds.length === 0}
               onChange={onGuildChange}
-            />
-          </label>
+            >
+              {selectedGuild?.name}
+            </Select>
+          </div>
 
-          <label className="space-y-2 text-sm text-white/70">
+          <div className="space-y-2 text-sm text-white/70">
             <span className="block">Voice channel</span>
             <Select
               className="w-full"
+              aria-label="Voice channel"
+              type="button"
               options={selectedGuild?.channels ?? []}
               value={channelId}
               placeholder="Select a voice channel"
@@ -86,13 +117,15 @@ export function SongForm({
               keyboardHints={false}
               disabled={!selectedGuild}
               onChange={onChannelChange}
-            />
-          </label>
+            >
+              {selectedChannel?.name}
+            </Select>
+          </div>
         </div>
 
         <label className="block space-y-2 text-sm text-white/70">
           <span className="block">Song name</span>
-          <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="flex items-center gap-3 sm:flex-row">
             <Input
               className="min-w-0 flex-1"
               inputClassName="text-white placeholder:text-white/35"
@@ -100,8 +133,17 @@ export function SongForm({
               maxLength={200}
               placeholder="e.g. Daft Punk - One More Time"
               value={songQuery}
-              onChange={onSongQueryChange}
-              required
+              onChange={(value) => {
+                setSongQueryEdited(true);
+                onSongQueryChange(value);
+              }}
+              onFocus={() => setSongQueryFocused(true)}
+              onBlur={() => {
+                setSongQueryFocused(false);
+                setSongQueryTouched(true);
+              }}
+              valid={!songQueryInvalid}
+              errorMessage="Enter a song name."
             />
             <Button
               className="shrink-0"
@@ -113,10 +155,10 @@ export function SongForm({
                 queueing ||
                 !discordUser ||
                 authLoading ||
-                !songQuery.trim() ||
+                guildsLoading ||
                 !guildId ||
                 !channelId ||
-                guildsLoading
+                !songQuery.trim()
               }
             >
               {queueing
@@ -127,6 +169,11 @@ export function SongForm({
             </Button>
           </div>
         </label>
+        {submitAttempted && missingFields.length > 0 && (
+          <p role="alert" className="text-sm text-red-300">
+            Please complete the required fields: {missingFields.join(", ")}.
+          </p>
+        )}
       </form>
 
       {guildsLoading && (
