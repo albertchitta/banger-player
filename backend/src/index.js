@@ -14,6 +14,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 const app = express();
 const commandHistory = createCommandHistory();
 const discordBot = createDiscordBot(commandHistory);
+commandHistory.setReporter((entry) => discordBot.logCommand(entry));
 const musicPlayer = createMusicPlayer(() => discordBot.client, commandHistory);
 const allowedOrigins = (process.env.CLIENT_ORIGIN ?? "http://localhost:5173")
   .split(",")
@@ -54,6 +55,27 @@ app.get("/api/commands", (_request, response) => {
 
 app.get("/api/guilds", (_request, response) => {
   response.json({ guilds: musicPlayer.listGuilds() });
+});
+
+app.get("/api/command-log", async (_request, response) => {
+  response.json(await discordBot.getCommandLog());
+});
+
+app.post("/api/command-log/channel", (request, response) => {
+  const { guildId, channelId } = request.body ?? {};
+  if (
+    typeof guildId !== "string" ||
+    guildId.length === 0 ||
+    typeof channelId !== "string" ||
+    channelId.length === 0
+  ) {
+    response.status(400).json({ error: "Provide a server ID and text channel ID" });
+    return;
+  }
+
+  response.json({
+    channel: discordBot.setCommandChannel({ guildId, channelId }),
+  });
 });
 
 app.get("/api/queue", (request, response) => {

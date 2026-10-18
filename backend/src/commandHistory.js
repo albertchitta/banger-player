@@ -2,8 +2,24 @@ import { randomUUID } from "node:crypto";
 
 export function createCommandHistory() {
   const entries = [];
+  let reporter = null;
+
+  function report(entry, message) {
+    if (!reporter) {
+      return;
+    }
+
+    void Promise.resolve()
+      .then(() => reporter({ ...entry, logMessage: message }))
+      .catch((error) => {
+        console.error(`Failed to write command "${entry.command}" to Discord:`, error);
+      });
+  }
 
   return {
+    setReporter(commandReporter) {
+      reporter = commandReporter;
+    },
     record(interaction) {
       const options = formatOptions(interaction.options.data);
       const entry = {
@@ -18,10 +34,10 @@ export function createCommandHistory() {
       entries.unshift(entry);
       return entry;
     },
-    recordWebCommand(query, guild) {
+    recordWebCommand(command, guild) {
       const entry = {
         id: randomUUID(),
-        command: `/play ${query}`,
+        command: command.startsWith("/") ? command : `/play ${command}`,
         user: "Web client",
         guild,
         timestamp: new Date().toISOString(),
@@ -31,11 +47,14 @@ export function createCommandHistory() {
       entries.unshift(entry);
       return entry;
     },
-    updateState(id, state) {
+    updateState(id, state, logMessage) {
       const entry = entries.find((item) => item.id === id);
 
       if (entry) {
         entry.state = state;
+        if (logMessage) {
+          report(entry, logMessage);
+        }
       }
     },
     list() {

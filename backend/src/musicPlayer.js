@@ -275,6 +275,7 @@ export function createMusicPlayer(getClient, commandHistory) {
         `/${action}`,
         guild.name,
       );
+      let logMessage;
 
       try {
         switch (action) {
@@ -284,6 +285,7 @@ export function createMusicPlayer(getClient, commandHistory) {
               throw createHttpError("There is no current song to skip", 409);
             }
 
+            logMessage = `🎵 **${activeSong.title}** skipped`;
             commandHistory.updateState(activeSong.historyId, "skipped");
             queue.current = null;
             queue.startingSong = null;
@@ -294,6 +296,7 @@ export function createMusicPlayer(getClient, commandHistory) {
             break;
           }
           case "clear": {
+            logMessage = "Queue cleared";
             for (const song of [
               queue.current,
               queue.startingSong,
@@ -318,6 +321,7 @@ export function createMusicPlayer(getClient, commandHistory) {
               throw createHttpError("There is no playing song to pause", 409);
             }
 
+            logMessage = `🎵 **${queue.current.title}** paused`;
             queue.paused = true;
             commandHistory.updateState(queue.current.historyId, "paused");
             break;
@@ -326,6 +330,7 @@ export function createMusicPlayer(getClient, commandHistory) {
               throw createHttpError("There is no paused song to resume", 409);
             }
 
+            logMessage = `🎵 **${queue.current.title}** resumed`;
             queue.paused = false;
             commandHistory.updateState(queue.current.historyId, "playing");
             break;
@@ -333,13 +338,17 @@ export function createMusicPlayer(getClient, commandHistory) {
             throw createHttpError("Unknown queue action", 400);
         }
 
-        commandHistory.updateState(historyEntry.id, "completed");
+        commandHistory.updateState(historyEntry.id, "completed", logMessage);
         if (action === "skip") {
           void startNext(guildId, queue);
         }
         return getQueueState(guildId);
       } catch (error) {
-        commandHistory.updateState(historyEntry.id, "failed");
+        commandHistory.updateState(
+          historyEntry.id,
+          "failed",
+          `Could not ${action}: ${error.message}`,
+        );
         throw error;
       }
     },
@@ -354,6 +363,14 @@ export function createMusicPlayer(getClient, commandHistory) {
         name: guild.name,
         channels: guild.channels.cache
           .filter((channel) => channel.type === ChannelType.GuildVoice)
+          .map((channel) => ({ id: channel.id, name: channel.name })),
+        textChannels: guild.channels.cache
+          .filter((channel) =>
+            [
+              ChannelType.GuildText,
+              ChannelType.GuildAnnouncement,
+            ].includes(channel.type),
+          )
           .map((channel) => ({ id: channel.id, name: channel.name })),
       }));
     },
@@ -431,7 +448,11 @@ export function createMusicPlayer(getClient, commandHistory) {
 
         queue.channelId = channelId;
         queue.songs.push(song);
-        commandHistory.updateState(historyEntry.id, "queued");
+        commandHistory.updateState(
+          historyEntry.id,
+          "queued",
+          `🎵 **${result.title}** added to the queue`,
+        );
         void startNext(guildId, queue);
 
         return {
@@ -441,7 +462,11 @@ export function createMusicPlayer(getClient, commandHistory) {
             queue.songs.length + (queue.current || queue.starting ? 1 : 0),
         };
       } catch (error) {
-        commandHistory.updateState(historyEntry.id, "failed");
+        commandHistory.updateState(
+          historyEntry.id,
+          "failed",
+          `Could not add "${query}" to the queue`,
+        );
         if (error.statusCode) {
           throw error;
         }

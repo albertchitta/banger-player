@@ -29,6 +29,11 @@ browser origins (comma-separated).
 The web app can log the Discord bot in and out. Stopping it clears any current
 playback and queue and disconnects it from voice; the API remains available so
 the bot can be started again.
+In Logs, select a server and text channel to send bot and web
+activity to that channel and view its latest messages. The selected channel is
+kept in memory until the backend restarts.
+Successful song and queue actions are logged in a readable format, such as
+`Artist - Song added to the queue`, `Artist - Song paused`, and `Queue cleared`.
 
 ## Run the React app
 
@@ -40,8 +45,8 @@ pnpm dev
 ```
 
 The Vite server proxies `/api` requests to the backend. The app displays the
-connection status fetched from `GET /api/status` and polls command history
-every five seconds.
+connection status fetched from `GET /api/status` and polls the Discord channel
+logs every five seconds.
 
 The client lets users select a server and voice channel to play or queue songs.
 It displays that selection, the current song, and queued songs, refreshing the
@@ -56,7 +61,13 @@ channel when the queue becomes empty or is cleared.
 - `GET /api/status` returns API and Discord bot connection status.
 - `POST /api/bot/control` accepts an action of `start` or `stop` to log the
   Discord bot in or out.
-- `GET /api/guilds` lists available Discord servers and voice channels.
+- `GET /api/guilds` lists available Discord servers, voice channels, and text
+  channels.
+- `GET /api/command-log` returns the selected log channel and its latest
+  messages.
+- `POST /api/command-log/channel` accepts `guildId` and `channelId` to select
+  where activity is logged. The bot needs View Channel, Read Message History,
+  and Send Messages permissions there.
 - `GET /api/queue?guildId=<id>` returns the current song and waiting songs.
 - `POST /api/queue/control` accepts `guildId` and an action of `skip`, `clear`,
   `pause`, or `resume`.
@@ -66,8 +77,9 @@ channel when the queue becomes empty or is cleared.
   since the backend started, newest first. This history is kept in memory and
   resets on restart.
 
-The queue endpoint has no user authentication. Keep the backend restricted to
-trusted users and networks unless you add an authentication layer.
+The queue and log endpoints have no user authentication. Keep the
+backend restricted to trusted users and networks unless you add an
+authentication layer.
 
 ## Existing Python music bot
 

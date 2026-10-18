@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 type BackendStatus = {
   api: string;
@@ -10,21 +10,17 @@ type BackendStatus = {
   };
 };
 
-type CommandHistoryEntry = {
+type CommandLogChannel = {
+  guildId: string;
+  channelId: string;
+  name: string | null;
+};
+
+type CommandLogMessage = {
   id: string;
-  command: string;
-  user: string;
-  guild: string;
+  content: string;
+  author: string;
   timestamp: string;
-  state:
-    | "received"
-    | "queued"
-    | "playing"
-    | "paused"
-    | "completed"
-    | "skipped"
-    | "cleared"
-    | "failed";
 };
 
 type VoiceChannel = {
@@ -36,6 +32,7 @@ type DiscordGuild = {
   id: string;
   name: string;
   channels: VoiceChannel[];
+  textChannels: VoiceChannel[];
 };
 
 type GuildQueue = {
@@ -54,8 +51,6 @@ type GuildQueue = {
 export default function App() {
   const [status, setStatus] = useState<BackendStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [commands, setCommands] = useState<CommandHistoryEntry[]>([]);
-  const [historyError, setHistoryError] = useState<string | null>(null);
   const [guilds, setGuilds] = useState<DiscordGuild[]>([]);
   const [guildsLoading, setGuildsLoading] = useState(true);
   const [guildsError, setGuildsError] = useState<string | null>(null);
@@ -72,7 +67,24 @@ export default function App() {
   const [queueControlError, setQueueControlError] = useState<string | null>(null);
   const [botControlBusy, setBotControlBusy] = useState(false);
   const [botControlError, setBotControlError] = useState<string | null>(null);
+  const [logGuildId, setLogGuildId] = useState("");
+  const [logChannelId, setLogChannelId] = useState("");
+  const [logChannel, setLogChannel] = useState<CommandLogChannel | null>(null);
+  const [logMessages, setLogMessages] = useState<CommandLogMessage[]>([]);
+  const [logLoading, setLogLoading] = useState(true);
+  const [logError, setLogError] = useState<string | null>(null);
+  const [logSaving, setLogSaving] = useState(false);
+  const [logSaveError, setLogSaveError] = useState<string | null>(null);
+  const [logRefreshKey, setLogRefreshKey] = useState(0);
+  const logMessagesRef = useRef<HTMLOListElement>(null);
   const [guildRefreshKey, setGuildRefreshKey] = useState(0);
+
+  useEffect(() => {
+    const messageList = logMessagesRef.current;
+    if (messageList) {
+      messageList.scrollTop = messageList.scrollHeight;
+    }
+  }, [logMessages]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -140,7 +152,10 @@ export default function App() {
       })
       .then(({ guilds: availableGuilds }) => {
         setGuilds(
-          availableGuilds.filter((guild) => guild.channels.length > 0),
+          availableGuilds.filter(
+            (guild) =>
+              guild.channels.length > 0 || guild.textChannels.length > 0,
+          ),
         );
         setGuildsError(null);
       })
@@ -220,42 +235,86 @@ export default function App() {
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout>;
 
-    async function loadHistory() {
+    async function loadCommandLog() {
       try {
-        const response = await fetch("/api/commands", {
+        const response = await fetch("/api/command-log", {
           signal: controller.signal,
         });
         if (!response.ok) {
           throw new Error(`Backend returned ${response.status}`);
         }
 
-        const history = (await response.json()) as {
-          commands: CommandHistoryEntry[];
+        const result = (await response.json()) as {
+          channel: CommandLogChannel | null;
+          messages: CommandLogMessage[];
         };
-        setCommands(history.commands);
-        setHistoryError(null);
+        setLogChannel(result.channel);
+        setLogMessages(result.messages);
+        const configuredChannel = result.channel;
+        if (configuredChannel) {
+          setLogGuildId((current) => current || configuredChannel.guildId);
+          setLogChannelId((current) => current || configuredChannel.channelId);
+        }
+        setLogError(null);
       } catch (fetchError: unknown) {
         if (fetchError instanceof DOMException && fetchError.name === "AbortError") {
           return;
         }
 
-        setHistoryError(
+        setLogError(
           fetchError instanceof Error
             ? fetchError.message
-            : "Could not load command history",
+            : "Could not load the selected Discord channel",
         );
+      } finally {
+        if (!controller.signal.aborted) {
+          setLogLoading(false);
+        }
       }
 
-      timeout = setTimeout(() => void loadHistory(), 5000);
+      timeout = setTimeout(() => void loadCommandLog(), 5000);
     }
 
-    void loadHistory();
+    void loadCommandLog();
 
     return () => {
       controller.abort();
       clearTimeout(timeout);
     };
-  }, []);
+  }, [logRefreshKey]);
+
+  async function selectCommandLogChannel() {
+    setLogSaving(true);
+    setLogSaveError(null);
+
+    try {
+      const response = await fetch("/api/command-log/channel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ guildId: logGuildId, channelId: logChannelId }),
+      });
+      const result = (await response.json()) as {
+        error?: string;
+        channel?: CommandLogChannel;
+      };
+      if (!response.ok) {
+        throw new Error(result.error ?? `Backend returned ${response.status}`);
+      }
+
+      setLogChannel(result.channel ?? null);
+      setLogMessages([]);
+      setLogLoading(true);
+      setLogRefreshKey((key) => key + 1);
+    } catch (saveError: unknown) {
+      setLogSaveError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Could not select the command log channel",
+      );
+    } finally {
+      setLogSaving(false);
+    }
+  }
 
   async function submitSong(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -370,6 +429,7 @@ export default function App() {
   }
 
   const selectedGuild = guilds.find((guild) => guild.id === guildId);
+  const selectedLogGuild = guilds.find((guild) => guild.id === logGuildId);
   const selectedQueue =
     queue.guildId === guildId ? queue : { current: null, songs: [] };
 
@@ -698,55 +758,135 @@ export default function App() {
         </section>
 
         <section className="mt-10" aria-labelledby="command-history-title">
-          <div className="flex items-center justify-between">
+          <div>
             <h2 id="command-history-title" className="text-xl font-semibold">
-              Command history
+              Logs
             </h2>
+            <p className="mt-2 text-sm text-white/55">
+              Choose a Discord text channel to log bot commands and view recent
+              messages.
+            </p>
+          </div>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <label className="space-y-2 text-sm text-white/70">
+              <span className="block">Discord server</span>
+              <select
+                className="w-full rounded-lg border border-white/10 bg-zinc-900 px-3 py-3 text-white disabled:opacity-50"
+                value={logGuildId}
+                disabled={guildsLoading || guilds.length === 0}
+                onChange={(event) => {
+                  setLogGuildId(event.target.value);
+                  setLogChannelId("");
+                }}
+              >
+                <option value="">Select a server</option>
+                {guilds.map((guild) => (
+                  <option key={guild.id} value={guild.id}>
+                    {guild.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-2 text-sm text-white/70">
+              <span className="block">Text channel</span>
+              <select
+                className="w-full rounded-lg border border-white/10 bg-zinc-900 px-3 py-3 text-white disabled:opacity-50"
+                value={logChannelId}
+                disabled={!selectedLogGuild}
+                onChange={(event) => setLogChannelId(event.target.value)}
+              >
+                <option value="">Select a text channel</option>
+                {selectedLogGuild?.textChannels.map((channel) => (
+                  <option key={channel.id} value={channel.id}>
+                    #{channel.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <button
+              className="rounded-lg bg-white px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:bg-white/85 disabled:cursor-not-allowed disabled:opacity-40"
+              type="button"
+              disabled={
+                logSaving ||
+                !logGuildId ||
+                !logChannelId ||
+                status?.discord.state !== "ready"
+              }
+              onClick={() => void selectCommandLogChannel()}
+            >
+              {logSaving ? "Saving…" : "Use channel"}
+            </button>
+          </div>
+
+          <p className="mt-2 text-xs text-white/45">
+            The bot needs View Channel, Read Message History, and Send Messages
+            permissions. The selected channel is kept until the backend restarts.
+          </p>
+          {logSaveError && (
+            <p role="alert" className="mt-3 text-sm text-red-300">
+              {logSaveError}
+            </p>
+          )}
+
+          <div className="mt-6 flex items-center justify-between">
+            <h3 className="font-semibold text-white">
+              {logChannel?.name
+                ? `#${logChannel.name}`
+                : logChannel
+                  ? "Selected text channel"
+                  : "No command channel selected"}
+            </h3>
             <span className="text-sm text-white/50">
-              {commands.length} {commands.length === 1 ? "command" : "commands"}
+              {logMessages.length} recent{" "}
+              {logMessages.length === 1 ? "message" : "messages"}
             </span>
           </div>
 
-          {historyError ? (
+          {logError ? (
             <p role="alert" className="mt-4 text-sm text-red-300">
-              Could not load command history: {historyError}
+              Could not load the selected Discord channel: {logError}
             </p>
-          ) : commands.length === 0 ? (
+          ) : !logChannel ? (
             <p className="mt-4 rounded-lg bg-white/5 px-4 py-6 text-center text-white/55">
-              No commands received yet.
+              Select a text channel to start logging commands and view its
+              messages.
+            </p>
+          ) : status?.discord.state !== "ready" ? (
+            <p className="mt-4 rounded-lg bg-white/5 px-4 py-6 text-center text-white/55">
+              Start the Discord bot to view this channel and write command logs.
+            </p>
+          ) : logLoading ? (
+            <p className="mt-4 rounded-lg bg-white/5 px-4 py-6 text-center text-white/55">
+              Loading channel messages…
+            </p>
+          ) : logMessages.length === 0 ? (
+            <p className="mt-4 rounded-lg bg-white/5 px-4 py-6 text-center text-white/55">
+              No messages in this channel yet.
             </p>
           ) : (
-            <ol className="mt-4 max-h-96 space-y-3 overflow-y-auto">
-              {commands.map((entry) => (
-                <li
-                  key={entry.id}
-                  className="rounded-lg bg-white/5 px-4 py-3"
-                >
+            <ol
+              ref={logMessagesRef}
+              className="mt-4 max-h-96 space-y-3 overflow-y-auto"
+            >
+              {logMessages.map((message) => (
+                <li key={message.id} className="rounded-lg bg-white/5 px-4 py-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <code className="break-all font-semibold text-white">
-                      {entry.command}
-                    </code>
-                    <span
-                      className={
-                        entry.state === "failed"
-                          ? "text-sm text-red-300"
-                          : entry.state === "playing"
-                            ? "text-sm text-sky-300"
-                            : "text-sm text-emerald-300"
-                      }
-                    >
-                      {entry.state}
+                    <span className="font-semibold text-white">
+                      {message.author}
                     </span>
+                    <time
+                      className="text-xs text-white/40"
+                      dateTime={message.timestamp}
+                    >
+                      {new Date(message.timestamp).toLocaleString()}
+                    </time>
                   </div>
-                  <p className="mt-2 text-sm text-white/60">
-                    {entry.user} · {entry.guild}
+                  <p className="mt-2 whitespace-pre-wrap break-words text-sm text-white/70">
+                    {message.content || "(Message has no text content)"}
                   </p>
-                  <time
-                    className="mt-1 block text-xs text-white/40"
-                    dateTime={entry.timestamp}
-                  >
-                    {new Date(entry.timestamp).toLocaleString()}
-                  </time>
                 </li>
               ))}
             </ol>
