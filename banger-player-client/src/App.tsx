@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useToast } from "@cladd-ui/react";
 import { DashboardHeader } from "./components/DashboardHeader";
 import { LogsPanel } from "./components/LogsPanel";
 import { QueuePanel } from "./components/QueuePanel";
@@ -15,7 +16,35 @@ import type {
   QueueControlAction,
 } from "./types";
 
+const SELECTION_STORAGE_KEYS = {
+  guildId: "banger-player.guildId",
+  channelId: "banger-player.channelId",
+  logChannelId: "banger-player.logChannelId",
+} as const;
+
+function readStoredSelection(key: string): string {
+  try {
+    return window.localStorage.getItem(key) ?? "";
+  } catch (storageError: unknown) {
+    console.error("Could not read saved dashboard selection:", storageError);
+    return "";
+  }
+}
+
+function saveSelection(key: string, value: string) {
+  try {
+    if (value) {
+      window.localStorage.setItem(key, value);
+    } else {
+      window.localStorage.removeItem(key);
+    }
+  } catch (storageError: unknown) {
+    console.error("Could not save dashboard selection:", storageError);
+  }
+}
+
 export default function App() {
+  const showToast = useToast();
   const [controlsPage, setControlsPage] = useState(
     () => window.location.pathname === "/controls",
   );
@@ -29,11 +58,14 @@ export default function App() {
   const [guilds, setGuilds] = useState<DiscordGuild[]>([]);
   const [guildsLoading, setGuildsLoading] = useState(true);
   const [guildsError, setGuildsError] = useState<string | null>(null);
-  const [guildId, setGuildId] = useState("");
-  const [channelId, setChannelId] = useState("");
+  const [guildId, setGuildId] = useState(() =>
+    readStoredSelection(SELECTION_STORAGE_KEYS.guildId),
+  );
+  const [channelId, setChannelId] = useState(() =>
+    readStoredSelection(SELECTION_STORAGE_KEYS.channelId),
+  );
   const [songQuery, setSongQuery] = useState("");
   const [queueing, setQueueing] = useState(false);
-  const [queueMessage, setQueueMessage] = useState<string | null>(null);
   const [queueError, setQueueError] = useState<string | null>(null);
   const [queue, setQueue] = useState<GuildQueue>({ current: null, songs: [] });
   const [queueLoadError, setQueueLoadError] = useState<string | null>(null);
@@ -43,7 +75,9 @@ export default function App() {
   const [botControlBusy, setBotControlBusy] = useState(false);
   const [botControlError, setBotControlError] = useState<string | null>(null);
   const [logGuildId, setLogGuildId] = useState("");
-  const [logChannelId, setLogChannelId] = useState("");
+  const [logChannelId, setLogChannelId] = useState(() =>
+    readStoredSelection(SELECTION_STORAGE_KEYS.logChannelId),
+  );
   const [logChannel, setLogChannel] = useState<CommandLogChannel | null>(null);
   const [logMessages, setLogMessages] = useState<CommandLogMessage[]>([]);
   const [logLoading, setLogLoading] = useState(true);
@@ -51,8 +85,26 @@ export default function App() {
   const [logSaving, setLogSaving] = useState(false);
   const [logSaveError, setLogSaveError] = useState<string | null>(null);
   const [logRefreshKey, setLogRefreshKey] = useState(0);
-  const logMessagesRef = useRef<HTMLOListElement>(null);
+  const logMessagesRef = useRef<HTMLDivElement>(null);
   const [guildRefreshKey, setGuildRefreshKey] = useState(0);
+
+  useEffect(() => {
+    if (guildId) {
+      saveSelection(SELECTION_STORAGE_KEYS.guildId, guildId);
+    }
+  }, [guildId]);
+
+  useEffect(() => {
+    if (channelId) {
+      saveSelection(SELECTION_STORAGE_KEYS.channelId, channelId);
+    }
+  }, [channelId]);
+
+  useEffect(() => {
+    if (logChannelId) {
+      saveSelection(SELECTION_STORAGE_KEYS.logChannelId, logChannelId);
+    }
+  }, [logChannelId]);
 
   useEffect(() => {
     function handlePopState() {
@@ -316,7 +368,10 @@ export default function App() {
     };
   }, [logRefreshKey]);
 
-  async function selectCommandLogChannel() {
+  async function selectCommandLogChannel(
+    selectedGuildId = logGuildId,
+    selectedChannelId = logChannelId,
+  ) {
     setLogSaving(true);
     setLogSaveError(null);
 
@@ -324,7 +379,10 @@ export default function App() {
       const response = await fetch("/api/command-log/channel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ guildId: logGuildId, channelId: logChannelId }),
+        body: JSON.stringify({
+          guildId: selectedGuildId,
+          channelId: selectedChannelId,
+        }),
       });
       const result = (await response.json()) as {
         error?: string;
@@ -376,7 +434,6 @@ export default function App() {
   async function submitSong(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setQueueing(true);
-    setQueueMessage(null);
     setQueueError(null);
 
     try {
@@ -395,9 +452,11 @@ export default function App() {
         throw new Error(result.error ?? `Backend returned ${response.status}`);
       }
 
-      setQueueMessage(
-        `Added "${result.title}" (${result.duration}) to the queue at position ${result.position}.`,
-      );
+      showToast({
+        title: "Added to queue",
+        text: `Added "${result.title}" (${result.duration}) to the queue at position ${result.position}.`,
+        color: "green",
+      });
       setQueueRefreshKey((key) => key + 1);
       setSongQuery("");
     } catch (submitError: unknown) {
@@ -484,7 +543,6 @@ export default function App() {
   }
 
   const selectedGuild = guilds.find((guild) => guild.id === guildId);
-  const selectedLogGuild = guilds.find((guild) => guild.id === logGuildId);
   const selectedQueue =
     queue.guildId === guildId ? queue : { current: null, songs: [] };
 
@@ -500,44 +558,64 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-cladd-bg px-4 pb-6 pt-24 text-white sm:px-6 lg:px-8">
-      <main className="mx-auto w-full max-w-7xl space-y-6">
-        <DashboardHeader
-          user={discordUser}
-          signingOut={signingOut}
-          onSignOut={() => void signOut()}
-        />
-        <StatusPanel
-          status={status}
-          error={error}
-          botControlBusy={botControlBusy}
-          botControlError={botControlError}
-          queueSize={selectedQueue.songs.length + (selectedQueue.current ? 1 : 0)}
-          onControlBot={(action) => void controlBot(action)}
-        />
-        <div className="grid items-start gap-6 xl:grid-cols-2">
-          <SongForm
-            guilds={guilds}
-            guildsLoading={guildsLoading}
-            guildsError={guildsError}
-            guildId={guildId}
-            channelId={channelId}
-            songQuery={songQuery}
-            queueing={queueing}
-            queueMessage={queueMessage}
-            queueError={queueError}
-            authLoading={authLoading}
-            discordUser={discordUser}
-            onGuildChange={(value) => {
-              setGuildId(value);
-              setChannelId("");
-              setQueue({ current: null, songs: [] });
-              setQueueLoadError(null);
-            }}
-            onChannelChange={setChannelId}
-            onSongQueryChange={setSongQuery}
-            onSubmit={submitSong}
-            onRefreshGuilds={refreshGuilds}
+      <DashboardHeader
+        user={discordUser}
+        signingOut={signingOut}
+        onSignOut={() => void signOut()}
+      />
+      <main className="mx-auto w-full max-w-7xl space-y-6 xl:grid xl:h-[calc(100dvh-7.5rem)] xl:min-h-0 xl:grid-rows-[auto_auto_minmax(0,1fr)] xl:gap-6 xl:space-y-0">
+        <div className="space-y-4">
+          <StatusPanel
+            status={status}
+            error={error}
+            botControlBusy={botControlBusy}
+            botControlError={botControlError}
+            queueSize={
+              selectedQueue.songs.length + (selectedQueue.current ? 1 : 0)
+            }
+            onControlBot={(action) => void controlBot(action)}
           />
+        </div>
+        <div className="xl:min-h-0">
+          <div className="mx-auto w-full xl:max-w-5xl">
+            <SongForm
+              guilds={guilds}
+              guildsLoading={guildsLoading}
+              guildsError={guildsError}
+              guildId={guildId}
+              channelId={channelId}
+              logChannelId={logChannelId}
+              songQuery={songQuery}
+              queueing={queueing}
+              queueError={queueError}
+              authLoading={authLoading}
+              discordUser={discordUser}
+              status={status}
+              logSaving={logSaving}
+              logSaveError={logSaveError}
+              onGuildChange={(value) => {
+                saveSelection(SELECTION_STORAGE_KEYS.channelId, "");
+                saveSelection(SELECTION_STORAGE_KEYS.logChannelId, "");
+                setGuildId(value);
+                setLogGuildId(value);
+                setLogChannelId("");
+                setChannelId("");
+                setQueue({ current: null, songs: [] });
+                setQueueLoadError(null);
+              }}
+              onChannelChange={setChannelId}
+              onLogChannelChange={(value) => {
+                setLogGuildId(guildId);
+                setLogChannelId(value);
+                void selectCommandLogChannel(guildId, value);
+              }}
+              onSongQueryChange={setSongQuery}
+              onSubmit={submitSong}
+              onRefreshGuilds={refreshGuilds}
+            />
+          </div>
+        </div>
+        <div className="grid min-h-0 min-w-0 items-stretch gap-6 xl:grid-cols-2">
           <QueuePanel
             selectedGuild={selectedGuild}
             channelId={channelId}
@@ -548,28 +626,15 @@ export default function App() {
             controlError={queueControlError}
             onControl={(action) => void controlQueue(action)}
           />
+          <LogsPanel
+            logChannel={logChannel}
+            logMessages={logMessages}
+            logLoading={logLoading}
+            logError={logError}
+            status={status}
+            logMessagesRef={logMessagesRef}
+          />
         </div>
-        <LogsPanel
-          guilds={guilds}
-          selectedGuild={selectedLogGuild}
-          guildsLoading={guildsLoading}
-          logGuildId={logGuildId}
-          logChannelId={logChannelId}
-          logChannel={logChannel}
-          logMessages={logMessages}
-          logLoading={logLoading}
-          logError={logError}
-          logSaving={logSaving}
-          logSaveError={logSaveError}
-          status={status}
-          logMessagesRef={logMessagesRef}
-          onGuildChange={(value) => {
-            setLogGuildId(value);
-            setLogChannelId("");
-          }}
-          onChannelChange={setLogChannelId}
-          onSelectChannel={() => void selectCommandLogChannel()}
-        />
       </main>
     </div>
   );
