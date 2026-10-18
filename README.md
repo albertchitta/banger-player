@@ -20,8 +20,11 @@ on Windows, or `python3 -m pip install -r requirements.txt` on macOS/Linux).
    set `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, and
    `DISCORD_REDIRECT_URI` in `backend/.env`. Generate a random session secret
    with `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`
-   and set it as `SESSION_SECRET`. For HTTPS deployments, set `COOKIE_SECURE=true`
-   and use the public HTTPS callback URI.
+   and set it as `SESSION_SECRET`. Set `DISCORD_USER_ALLOWLIST` to a
+   comma-separated list of allowed Discord user IDs. You can copy a user's ID
+   from Discord with Developer Mode enabled. Sign-in stays disabled if the
+   allowlist is empty. For HTTPS deployments, set `COOKIE_SECURE=true` and use
+   the public HTTPS callback URI.
 4. From `backend`, install dependencies and start the service:
 
    ```sh
@@ -98,10 +101,11 @@ channel when the queue becomes empty or is cleared.
   since the backend started, newest first. This history is kept in memory and
   resets on restart.
 
-Web users must sign in before submitting songs. Discord server members can use
-the `!!` commands directly in Discord. Queue controls and log management
-currently have no user authentication, so keep the backend restricted to
-trusted users and networks.
+Web users must sign in with an ID in `DISCORD_USER_ALLOWLIST`. The allowlist is
+required to enable sign-in and protects web queue submissions, queue controls,
+bot start/stop, server and queue data, command history, and command-log
+management. Discord server members can use the `!!` commands directly in
+Discord; this web allowlist does not restrict Discord message commands.
 
 ## Legacy Python music bot
 

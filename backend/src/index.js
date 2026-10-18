@@ -46,7 +46,7 @@ app.get("/api/auth/discord", discordAuth.start);
 app.get("/api/auth/discord/callback", discordAuth.callback);
 app.post("/api/auth/logout", discordAuth.logout);
 
-app.post("/api/bot/control", async (request, response) => {
+app.post("/api/bot/control", discordAuth.requireUser, async (request, response) => {
   const { action } = request.body ?? {};
   if (action !== "start" && action !== "stop") {
     response.status(400).json({ error: "Provide a supported bot action" });
@@ -60,36 +60,42 @@ app.post("/api/bot/control", async (request, response) => {
   response.json({ discord: discordBot.status });
 });
 
-app.get("/api/commands", (_request, response) => {
+app.get("/api/commands", discordAuth.requireUser, (_request, response) => {
   response.json({ commands: commandHistory.list() });
 });
 
-app.get("/api/guilds", (_request, response) => {
+app.get("/api/guilds", discordAuth.requireUser, (_request, response) => {
   response.json({ guilds: musicPlayer.listGuilds() });
 });
 
-app.get("/api/command-log", async (_request, response) => {
+app.get("/api/command-log", discordAuth.requireUser, async (_request, response) => {
   response.json(await discordBot.getCommandLog());
 });
 
-app.post("/api/command-log/channel", (request, response) => {
-  const { guildId, channelId } = request.body ?? {};
-  if (
-    typeof guildId !== "string" ||
-    guildId.length === 0 ||
-    typeof channelId !== "string" ||
-    channelId.length === 0
-  ) {
-    response.status(400).json({ error: "Provide a server ID and text channel ID" });
-    return;
-  }
+app.post(
+  "/api/command-log/channel",
+  discordAuth.requireUser,
+  (request, response) => {
+    const { guildId, channelId } = request.body ?? {};
+    if (
+      typeof guildId !== "string" ||
+      guildId.length === 0 ||
+      typeof channelId !== "string" ||
+      channelId.length === 0
+    ) {
+      response
+        .status(400)
+        .json({ error: "Provide a server ID and text channel ID" });
+      return;
+    }
 
-  response.json({
-    channel: discordBot.setCommandChannel({ guildId, channelId }),
-  });
-});
+    response.json({
+      channel: discordBot.setCommandChannel({ guildId, channelId }),
+    });
+  },
+);
 
-app.get("/api/queue", (request, response) => {
+app.get("/api/queue", discordAuth.requireUser, (request, response) => {
   const { guildId } = request.query;
   if (typeof guildId !== "string" || guildId.length === 0) {
     response.status(400).json({ error: "Provide a Discord server ID" });

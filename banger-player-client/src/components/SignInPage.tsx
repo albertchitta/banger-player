@@ -24,8 +24,7 @@ export function SignInPage({
         </p>
         <h1 className="mt-4 text-3xl font-bold">Sign in to continue</h1>
         <p className="mt-3 text-white/65">
-          Sign in with Discord to open the music controls and queue songs under
-          your verified name.
+          Sign in with Discord to open the music controls and queue songs.
         </p>
         {authError && (
           <p role="alert" className="mt-4 text-sm text-red-300">
@@ -35,8 +34,8 @@ export function SignInPage({
         {!authLoading && !discordAuthEnabled && (
           <p role="status" className="mt-4 text-sm text-amber-200">
             Discord sign-in is not configured. Set the Discord OAuth
-            credentials and session secret in the backend environment, then
-            restart the backend.
+            credentials, session secret, and allowed Discord user IDs in the
+            backend environment, then restart the backend.
           </p>
         )}
         <Button

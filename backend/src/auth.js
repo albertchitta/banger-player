@@ -37,6 +37,19 @@ export function createDiscordAuth({ clientOrigin }) {
   const clientSecret = process.env.DISCORD_CLIENT_SECRET;
   const redirectUri = process.env.DISCORD_REDIRECT_URI;
   const sessionSecret = process.env.SESSION_SECRET;
+  const allowedUserIds = new Set(
+    (process.env.DISCORD_USER_ALLOWLIST ?? "")
+      .split(",")
+      .map((userId) => userId.trim())
+      .filter(Boolean),
+  );
+  for (const userId of allowedUserIds) {
+    if (!/^\d{17,20}$/.test(userId)) {
+      throw new Error(
+        "DISCORD_USER_ALLOWLIST must contain comma-separated Discord user IDs",
+      );
+    }
+  }
   const secureCookies =
     process.env.COOKIE_SECURE === "true" || process.env.NODE_ENV === "production";
   const enabled = Boolean(
@@ -44,7 +57,8 @@ export function createDiscordAuth({ clientOrigin }) {
       clientSecret &&
       redirectUri &&
       sessionSecret &&
-      Buffer.byteLength(sessionSecret) >= 32,
+      Buffer.byteLength(sessionSecret) >= 32 &&
+      allowedUserIds.size > 0,
   );
 
   function cookieOptions(maxAge, path = "/api") {
@@ -108,12 +122,16 @@ export function createDiscordAuth({ clientOrigin }) {
   return {
     enabled,
     getUser(request, response) {
-      response.json({ enabled, user: readUser(request) });
+      const user = readUser(request);
+      response.json({
+        enabled,
+        user: user && allowedUserIds.has(user.id) ? user : null,
+      });
     },
     start(request, response) {
       if (!enabled) {
         throw createHttpError(
-          "Configure DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_REDIRECT_URI, and a SESSION_SECRET of at least 32 characters",
+          "Configure Discord OAuth credentials, a SESSION_SECRET of at least 32 characters, and DISCORD_USER_ALLOWLIST",
           503,
         );
       }
@@ -192,6 +210,12 @@ export function createDiscordAuth({ clientOrigin }) {
       if (typeof profile.id !== "string" || typeof profile.username !== "string") {
         throw createHttpError("Discord returned an invalid user profile", 502);
       }
+      if (!allowedUserIds.has(profile.id)) {
+        throw createHttpError(
+          "This Discord account is not on the access allowlist",
+          403,
+        );
+      }
 
       const payload = Buffer.from(
         JSON.stringify({
@@ -209,7 +233,11 @@ export function createDiscordAuth({ clientOrigin }) {
     requireUser(request, _response, next) {
       const user = readUser(request);
       if (!user) {
-        next(createHttpError("Sign in with Discord to queue songs", 401));
+        next(createHttpError("Sign in with an allowed Discord account", 401));
+        return;
+      }
+      if (!allowedUserIds.has(user.id)) {
+        next(createHttpError("This Discord account is not allowed", 403));
         return;
       }
 
