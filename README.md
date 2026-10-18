@@ -14,18 +14,30 @@ on Windows, or `python3 -m pip install -r requirements.txt` on macOS/Linux).
 1. Copy `.env.example` to `backend/.env`.
 2. Set `DISCORD_TOKEN` in `backend/.env` to enable the Discord bot. The API can
    run without a token while the bot is being configured.
-3. From `backend`, install dependencies and start the service:
+3. To let users sign in and have their verified Discord names shown beside
+   queued songs, configure the OAuth2 settings in the Discord Developer Portal:
+   add `http://localhost:3001/api/auth/discord/callback` as a redirect URI, then
+   set `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, and
+   `DISCORD_REDIRECT_URI` in `backend/.env`. Generate a random session secret
+   with `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`
+   and set it as `SESSION_SECRET`. For HTTPS deployments, set `COOKIE_SECURE=true`
+   and use the public HTTPS callback URI.
+4. From `backend`, install dependencies and start the service:
 
    ```sh
    pnpm install
    pnpm dev
    ```
 
-The backend listens on port `3001` by default. It registers the Discord slash
-commands `/help` and `/ping` when the bot connects. Set `DISCORD_GUILD_ID` to
-register them in one server during development; otherwise they are registered
-globally. `PORT` changes the API port, and `CLIENT_ORIGIN` configures allowed
-browser origins (comma-separated).
+The backend listens on port `3001` by default. Discord music commands use the
+`!!` prefix and the same queue and playback controls as the web client. Enable
+the **Message Content Intent** under **Privileged Gateway Intents** in the
+Discord Developer Portal, and give the bot permission to view and send messages
+in the command channel. Available commands include `!!play <song>` (alias
+`!!p`), `!!queue` (`!!q`), `!!skip` (`!!s`), `!!pause`, `!!resume` (`!!r`),
+`!!clear` (`!!c`), `!!stop` (`!!disconnect`), `!!help`, and `!!ping`. `!!play`
+uses the voice channel the command user has joined. `PORT` changes the API port,
+and `CLIENT_ORIGIN` configures allowed browser origins (comma-separated).
 The web app can log the Discord bot in and out. Stopping it clears any current
 playback and queue and disconnects it from voice; the API remains available so
 the bot can be started again.
@@ -33,7 +45,12 @@ In Logs, select a server and text channel to send bot and web
 activity to that channel and view its latest messages. The selected channel is
 kept in memory until the backend restarts.
 Successful song and queue actions are logged in a readable format, such as
-`Artist - Song added to the queue`, `Artist - Song paused`, and `Queue cleared`.
+`Artist - Song added to the queue by Display Name`,
+`Artist - Song paused by Display Name`, and `Queue cleared by Display Name`.
+Users must sign in with Discord before queueing songs; the queue displays the
+verified Discord username of each requester. The app opens on a dedicated
+Discord sign-in page; after sign-in it navigates to `/controls`. The controls
+page redirects signed-out visitors back to sign-in.
 
 ## Run the React app
 
@@ -61,6 +78,10 @@ channel when the queue becomes empty or is cleared.
 - `GET /api/status` returns API and Discord bot connection status.
 - `POST /api/bot/control` accepts an action of `start` or `stop` to log the
   Discord bot in or out.
+- `GET /api/auth/discord` starts Discord OAuth2 sign-in, and
+  `GET /api/auth/discord/callback` completes it.
+- `GET /api/auth/me` returns the signed-in Discord user, if any.
+- `POST /api/auth/logout` clears the current sign-in session.
 - `GET /api/guilds` lists available Discord servers, voice channels, and text
   channels.
 - `GET /api/command-log` returns the selected log channel and its latest
@@ -73,17 +94,16 @@ channel when the queue becomes empty or is cleared.
   `pause`, or `resume`.
 - `POST /api/queue` searches for a song and queues it in the selected server
   and voice channel.
-- `GET /api/commands` returns Discord slash commands and web song submissions
+- `GET /api/commands` returns Discord message commands and web song submissions
   since the backend started, newest first. This history is kept in memory and
   resets on restart.
 
-The queue and log endpoints have no user authentication. Keep the
-backend restricted to trusted users and networks unless you add an
-authentication layer.
+Web users must sign in before submitting songs. Discord server members can use
+the `!!` commands directly in Discord. Queue controls and log management
+currently have no user authentication, so keep the backend restricted to
+trusted users and networks.
 
-## Existing Python music bot
+## Legacy Python music bot
 
-`main.py` and its cogs are the original Python music bot. Its message-command
-prefix is `!!`; its music commands have not been migrated to the new Discord.js
-backend. Run only one bot process per Discord token to avoid conflicting
-connections.
+`main.py` and its cogs contain an older Python bot with `!!` message commands.
+Run only one bot process per Discord token to avoid conflicting connections.

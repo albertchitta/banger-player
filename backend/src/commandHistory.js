@@ -20,13 +20,13 @@ export function createCommandHistory() {
     setReporter(commandReporter) {
       reporter = commandReporter;
     },
-    record(interaction) {
-      const options = formatOptions(interaction.options.data);
+    recordMessage(message, command) {
       const entry = {
-        id: interaction.id,
-        command: `/${interaction.commandName}${options ? ` ${options}` : ""}`,
-        user: interaction.user.tag,
-        guild: interaction.guild?.name ?? "Direct message",
+        id: message.id,
+        command,
+        user: message.member?.displayName ?? message.author.username,
+        guild: message.guild?.name ?? "Direct message",
+        channelId: message.channelId,
         timestamp: new Date().toISOString(),
         state: "received",
       };
@@ -34,11 +34,11 @@ export function createCommandHistory() {
       entries.unshift(entry);
       return entry;
     },
-    recordWebCommand(command, guild) {
+    recordWebCommand(command, guild, user = "Web client") {
       const entry = {
         id: randomUUID(),
         command: command.startsWith("/") ? command : `/play ${command}`,
-        user: "Web client",
+        user,
         guild,
         timestamp: new Date().toISOString(),
         state: "received",
@@ -61,16 +61,4 @@ export function createCommandHistory() {
       return entries;
     },
   };
-}
-
-function formatOptions(options) {
-  return options
-    .flatMap(({ name, value, options: nestedOptions }) =>
-      nestedOptions
-        ? formatOptions(nestedOptions)
-        : value === undefined
-          ? []
-          : [`${name}: ${value}`],
-    )
-    .join(" ");
 }

@@ -217,6 +217,7 @@ export function createMusicPlayer(getClient, commandHistory) {
         ? {
             title: activeSong.title,
             duration: activeSong.duration,
+            requester: activeSong.requester,
             state: queue.current
               ? queue.paused
                 ? "paused"
@@ -227,6 +228,7 @@ export function createMusicPlayer(getClient, commandHistory) {
       songs: (queue?.songs ?? []).map((song) => ({
         title: song.title,
         duration: song.duration,
+        requester: song.requester,
       })),
     };
   }
@@ -259,7 +261,7 @@ export function createMusicPlayer(getClient, commandHistory) {
     getQueue(guildId) {
       return getQueueState(guildId);
     },
-    control(guildId, action) {
+    control(guildId, action, { historyId, requester } = {}) {
       const client = getClient();
       if (!client?.isReady()) {
         throw createHttpError("The Discord bot is not connected yet", 503);
@@ -271,10 +273,13 @@ export function createMusicPlayer(getClient, commandHistory) {
       }
 
       const queue = getQueue(guildId);
-      const historyEntry = commandHistory.recordWebCommand(
-        `/${action}`,
-        guild.name,
-      );
+      const historyEntryId =
+        historyId ??
+        commandHistory.recordWebCommand(
+          `/${action}`,
+          guild.name,
+          requester?.username ?? "Web client",
+        ).id;
       let logMessage;
 
       try {
@@ -316,6 +321,30 @@ export function createMusicPlayer(getClient, commandHistory) {
             }
             break;
           }
+          case "stop": {
+            logMessage = "Bot disconnected from voice";
+            for (const song of [
+              queue.current,
+              queue.startingSong,
+              ...queue.songs,
+            ]) {
+              if (song) {
+                commandHistory.updateState(song.historyId, "cleared");
+              }
+            }
+
+            queue.songs = [];
+            queue.current = null;
+            queue.startingSong = null;
+            queue.paused = false;
+            if (queue.player.state.status !== AudioPlayerStatus.Idle) {
+              queue.player.stop(true);
+            }
+            queue.connection?.destroy();
+            queue.connection = null;
+            queue.channelId = null;
+            break;
+          }
           case "pause":
             if (!queue.current || queue.paused || !queue.player.pause()) {
               throw createHttpError("There is no playing song to pause", 409);
@@ -338,14 +367,14 @@ export function createMusicPlayer(getClient, commandHistory) {
             throw createHttpError("Unknown queue action", 400);
         }
 
-        commandHistory.updateState(historyEntry.id, "completed", logMessage);
+        commandHistory.updateState(historyEntryId, "completed", logMessage);
         if (action === "skip") {
           void startNext(guildId, queue);
         }
         return getQueueState(guildId);
       } catch (error) {
         commandHistory.updateState(
-          historyEntry.id,
+          historyEntryId,
           "failed",
           `Could not ${action}: ${error.message}`,
         );
@@ -374,7 +403,7 @@ export function createMusicPlayer(getClient, commandHistory) {
           .map((channel) => ({ id: channel.id, name: channel.name })),
       }));
     },
-    async enqueue({ query, guildId, channelId }) {
+    async enqueue({ query, guildId, channelId, requester, historyId }) {
       const client = getClient();
       if (!client?.isReady()) {
         throw createHttpError("The Discord bot is not connected yet", 503);
@@ -416,7 +445,13 @@ export function createMusicPlayer(getClient, commandHistory) {
         );
       }
 
-      const historyEntry = commandHistory.recordWebCommand(query, guild.name);
+      const historyEntryId =
+        historyId ??
+        commandHistory.recordWebCommand(
+          query,
+          guild.name,
+          requester.username,
+        ).id;
 
       try {
         const results = await search(query, {
@@ -443,13 +478,14 @@ export function createMusicPlayer(getClient, commandHistory) {
           url: result.url,
           duration: result.durationRaw,
           channelId,
-          historyId: historyEntry.id,
+          requester,
+          historyId: historyEntryId,
         };
 
         queue.channelId = channelId;
         queue.songs.push(song);
         commandHistory.updateState(
-          historyEntry.id,
+          historyEntryId,
           "queued",
           `🎵 **${result.title}** added to the queue`,
         );
@@ -458,12 +494,13 @@ export function createMusicPlayer(getClient, commandHistory) {
         return {
           title: song.title,
           duration: song.duration,
+          requester: song.requester,
           position:
             queue.songs.length + (queue.current || queue.starting ? 1 : 0),
         };
       } catch (error) {
         commandHistory.updateState(
-          historyEntry.id,
+          historyEntryId,
           "failed",
           `Could not add "${query}" to the queue`,
         );

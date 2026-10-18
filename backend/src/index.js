@@ -1,6 +1,7 @@
 import "dotenv/config";
 import cors from "cors";
 import express from "express";
+import { createDiscordAuth } from "./auth.js";
 import { createCommandHistory } from "./commandHistory.js";
 import { createDiscordBot } from "./discord.js";
 import { createMusicPlayer } from "./musicPlayer.js";
@@ -12,14 +13,19 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 }
 
 const app = express();
-const commandHistory = createCommandHistory();
-const discordBot = createDiscordBot(commandHistory);
-commandHistory.setReporter((entry) => discordBot.logCommand(entry));
-const musicPlayer = createMusicPlayer(() => discordBot.client, commandHistory);
 const allowedOrigins = (process.env.CLIENT_ORIGIN ?? "http://localhost:5173")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
+const discordAuth = createDiscordAuth({ clientOrigin: allowedOrigins[0] });
+const commandHistory = createCommandHistory();
+let discordBot;
+const musicPlayer = createMusicPlayer(
+  () => discordBot?.client,
+  commandHistory,
+);
+discordBot = createDiscordBot(commandHistory, musicPlayer);
+commandHistory.setReporter((entry) => discordBot.logCommand(entry));
 
 app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
@@ -34,6 +40,11 @@ app.get("/api/status", (_request, response) => {
     discord: discordBot.status,
   });
 });
+
+app.get("/api/auth/me", discordAuth.getUser);
+app.get("/api/auth/discord", discordAuth.start);
+app.get("/api/auth/discord/callback", discordAuth.callback);
+app.post("/api/auth/logout", discordAuth.logout);
 
 app.post("/api/bot/control", async (request, response) => {
   const { action } = request.body ?? {};
@@ -88,7 +99,7 @@ app.get("/api/queue", (request, response) => {
   response.json(musicPlayer.getQueue(guildId));
 });
 
-app.post("/api/queue/control", (request, response) => {
+app.post("/api/queue/control", discordAuth.requireUser, (request, response) => {
   const { action, guildId } = request.body ?? {};
   if (
     !["skip", "clear", "pause", "resume"].includes(action) ||
@@ -101,10 +112,12 @@ app.post("/api/queue/control", (request, response) => {
     return;
   }
 
-  response.json(musicPlayer.control(guildId, action));
+  response.json(
+    musicPlayer.control(guildId, action, { requester: request.user }),
+  );
 });
 
-app.post("/api/queue", async (request, response) => {
+app.post("/api/queue", discordAuth.requireUser, async (request, response) => {
   const { query, guildId, channelId } = request.body ?? {};
   if (
     typeof query !== "string" ||
@@ -123,6 +136,7 @@ app.post("/api/queue", async (request, response) => {
     query: query.trim(),
     guildId,
     channelId,
+    requester: request.user,
   });
   response.status(202).json(song);
 });

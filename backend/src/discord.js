@@ -4,21 +4,13 @@ import {
   Events,
   GatewayIntentBits,
   PermissionFlagsBits,
-  SlashCommandBuilder,
 } from "discord.js";
 
-const commands = [
-  new SlashCommandBuilder()
-    .setName("help")
-    .setDescription("Show available bot commands"),
-  new SlashCommandBuilder()
-    .setName("ping")
-    .setDescription("Check whether the bot is responding"),
-];
+const PREFIX = "!!";
+const CONTROL_COMMANDS = new Set(["skip", "clear", "pause", "resume", "stop"]);
 
-export function createDiscordBot(commandHistory) {
+export function createDiscordBot(commandHistory, musicPlayer) {
   const token = process.env.DISCORD_TOKEN;
-  const guildId = process.env.DISCORD_GUILD_ID;
   const status = {
     enabled: Boolean(token),
     state: token ? "connecting" : "disabled",
@@ -69,7 +61,12 @@ export function createDiscordBot(commandHistory) {
 
   function createClient() {
     const discordClient = new Client({
-      intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
+      intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.GuildVoiceStates,
+        GatewayIntentBits.MessageContent,
+      ],
     });
 
     discordClient.once(Events.ClientReady, async (readyClient) => {
@@ -82,54 +79,195 @@ export function createDiscordBot(commandHistory) {
       status.guilds = readyClient.guilds.cache.size;
 
       try {
-        const registeredCommands = await readyClient.application.commands.fetch({
-          guildId,
-        });
-
-        for (const command of commands) {
-          const existingCommand = registeredCommands.find(
-            (registered) => registered.name === command.name,
-          );
-
-          if (existingCommand) {
-            await existingCommand.edit(command.toJSON());
-          } else {
-            await readyClient.application.commands.create(
-              command.toJSON(),
-              guildId,
+        await readyClient.application.commands.set([]);
+        for (const guild of readyClient.guilds.cache.values()) {
+          try {
+            await readyClient.application.commands.set([], guild.id);
+          } catch (error) {
+            console.error(
+              `Failed to remove old slash commands from ${guild.id}:`,
+              error,
             );
           }
         }
       } catch (error) {
-        console.error("Failed to register Discord commands:", error);
+        console.error("Failed to remove old global slash commands:", error);
       }
     });
 
-    discordClient.on(Events.InteractionCreate, async (interaction) => {
-      if (!interaction.isChatInputCommand()) {
+    discordClient.on(Events.MessageCreate, async (message) => {
+      if (message.author.bot || !message.content.startsWith(PREFIX)) {
         return;
       }
 
-      commandHistory.record(interaction);
-      const response =
-        interaction.commandName === "ping"
-          ? `Pong! WebSocket latency: ${discordClient.ws.ping}ms`
-          : "Available commands: `/help` and `/ping`.";
+      const input = message.content.slice(PREFIX.length).trim();
+      const [rawCommand, ...args] = input.split(/\s+/);
+      const query = args.join(" ").trim();
+      const commandName = rawCommand?.toLowerCase();
+      const command = {
+        p: "play",
+        playing: "play",
+        q: "queue",
+        s: "skip",
+        r: "resume",
+        c: "clear",
+        bin: "clear",
+        l: "stop",
+        d: "stop",
+        disconnect: "stop",
+      }[commandName] ?? commandName;
+      const recordedCommand = `${PREFIX}${rawCommand ?? ""}${
+        args.length ? ` ${args.join(" ")}` : ""
+      }`;
+
+      if (
+        !["help", "ping", "play", "queue", ...CONTROL_COMMANDS].includes(command)
+      ) {
+        return;
+      }
+
+      const historyEntry = commandHistory.recordMessage(
+        message,
+        recordedCommand,
+      );
+
+      async function reply(content) {
+        await message.reply({
+          content,
+          allowedMentions: { parse: [] },
+        });
+      }
 
       try {
-        await interaction.reply(response);
-        commandHistory.updateState(
-          interaction.id,
-          "completed",
-          `/${interaction.commandName} command completed`,
-        );
+        if (command === "help") {
+          await reply(
+            "Commands: `!!play <song>` (alias `!!p`), `!!queue` (`!!q`), `!!skip` (`!!s`), `!!pause`, `!!resume` (`!!r`), `!!clear` (`!!c`), and `!!stop` (`!!disconnect`).",
+          );
+          commandHistory.updateState(
+            historyEntry.id,
+            "completed",
+            "!!help command completed",
+          );
+          return;
+        }
+
+        if (command === "ping") {
+          await reply(`Pong! WebSocket latency: ${discordClient.ws.ping}ms`);
+          commandHistory.updateState(
+            historyEntry.id,
+            "completed",
+            "!!ping command completed",
+          );
+          return;
+        }
+
+        if (!message.guild) {
+          const error = new Error("Music commands are only available in a server.");
+          error.statusCode = 400;
+          throw error;
+        }
+
+        if (command === "play") {
+          if (!query || query.length > 200) {
+            const error = new Error(
+              "Use `!!play <song name>` with a song name up to 200 characters.",
+            );
+            error.statusCode = 400;
+            throw error;
+          }
+
+          const channelId = message.guild.voiceStates.cache.get(
+            message.author.id,
+          )?.channelId;
+          if (!channelId) {
+            const error = new Error(
+              "Join a voice channel first, then use `!!play` again.",
+            );
+            error.statusCode = 400;
+            throw error;
+          }
+
+          const song = await musicPlayer.enqueue({
+            query,
+            guildId: message.guild.id,
+            channelId,
+            requester: {
+              id: message.author.id,
+              username:
+                message.member?.displayName ??
+                message.author.globalName ??
+                message.author.username,
+            },
+            historyId: historyEntry.id,
+          });
+          await reply(
+            `Added **${song.title}** to the queue at position ${song.position} by **${historyEntry.user}**.`,
+          );
+          return;
+        }
+
+        if (command === "queue") {
+          const queue = musicPlayer.getQueue(message.guild.id);
+          const lines = [];
+          if (queue.current) {
+            lines.push(
+              `Now playing: **${queue.current.title}** (${queue.current.state})`,
+            );
+          }
+          lines.push(
+            ...queue.songs.slice(0, 15).map((song, index) =>
+              `${index + 1}. **${song.title}**${
+                song.requester?.username
+                  ? ` — queued by ${song.requester.username}`
+                  : ""
+              }`,
+            ),
+          );
+          await reply(
+            lines.length > 0
+              ? `**Song queue**\n${lines.join("\n")}`.slice(0, 1900)
+              : "The queue is empty.",
+          );
+          commandHistory.updateState(
+            historyEntry.id,
+            "completed",
+            "!!queue command completed",
+          );
+          return;
+        }
+
+        if (CONTROL_COMMANDS.has(command)) {
+          musicPlayer.control(message.guild.id, command, {
+            historyId: historyEntry.id,
+          });
+          const response = {
+            skip: "Skipped the current song",
+            clear: "Queue cleared",
+            pause: "Song paused",
+            resume: "Song resumed",
+            stop: "Disconnected from voice",
+          }[command];
+          await reply(`${response} by **${historyEntry.user}**.`);
+        }
       } catch (error) {
         commandHistory.updateState(
-          interaction.id,
+          historyEntry.id,
           "failed",
-          `/${interaction.commandName} command failed`,
+          `${recordedCommand} failed`,
         );
-        console.error(`Failed to respond to /${interaction.commandName}:`, error);
+        console.error(`Failed to handle Discord command ${recordedCommand}:`, error);
+        try {
+          await reply(
+            error?.statusCode && typeof error.message === "string"
+              ? error.message
+              : "The command could not be completed. Please try again.",
+          );
+        } catch (replyError) {
+          console.error(
+            `Could not send a response for ${recordedCommand}:`,
+            replyError,
+          );
+        }
       }
     });
 
@@ -198,16 +336,25 @@ export function createDiscordBot(commandHistory) {
       const messages = await channel.messages.fetch({ limit: 50 });
       return {
         channel: channelInfo,
-        messages: [...messages.values()].reverse().map((message) => ({
-          id: message.id,
-          content: message.content,
-          author: message.author.tag,
-          timestamp: message.createdAt.toISOString(),
-        })),
+        messages: [...messages.values()].reverse().map((message) => {
+          const attribution =
+            message.author.id === client.user.id
+              ? / by \*\*([^*\r\n]+)\*\*\.?$/.exec(message.content)
+              : null;
+
+          return {
+            id: message.id,
+            content: attribution
+              ? message.content.slice(0, -attribution[0].length)
+              : message.content,
+            author: attribution?.[1] ?? message.author.tag,
+            timestamp: message.createdAt.toISOString(),
+          };
+        }),
       };
     },
     async logCommand(entry) {
-      if (!commandChannel) {
+      if (!commandChannel || entry.channelId === commandChannel.channelId) {
         return;
       }
 
@@ -217,8 +364,10 @@ export function createDiscordBot(commandHistory) {
         throw new Error("The selected command log channel is unavailable");
       }
 
+      const logMessage = entry.logMessage.replace(/[\r\n]+/g, " ").trim();
+      const username = entry.user.replace(/[\r\n]+/g, " ").trim();
       await channel.send({
-        content: entry.logMessage,
+        content: `${logMessage} by **${username}**`,
         allowedMentions: { parse: [] },
       });
     },

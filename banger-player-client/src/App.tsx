@@ -10,6 +10,11 @@ type BackendStatus = {
   };
 };
 
+type DiscordUser = {
+  id: string;
+  username: string;
+};
+
 type CommandLogChannel = {
   guildId: string;
   channelId: string;
@@ -40,17 +45,27 @@ type GuildQueue = {
   current: {
     title: string;
     duration: string;
+    requester?: DiscordUser;
     state: "loading" | "playing" | "paused";
   } | null;
   songs: {
     title: string;
     duration: string;
+    requester?: DiscordUser;
   }[];
 };
 
 export default function App() {
+  const [controlsPage, setControlsPage] = useState(
+    () => window.location.pathname === "/controls",
+  );
   const [status, setStatus] = useState<BackendStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [discordUser, setDiscordUser] = useState<DiscordUser | null>(null);
+  const [discordAuthEnabled, setDiscordAuthEnabled] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
   const [guilds, setGuilds] = useState<DiscordGuild[]>([]);
   const [guildsLoading, setGuildsLoading] = useState(true);
   const [guildsError, setGuildsError] = useState<string | null>(null);
@@ -78,6 +93,22 @@ export default function App() {
   const [logRefreshKey, setLogRefreshKey] = useState(0);
   const logMessagesRef = useRef<HTMLOListElement>(null);
   const [guildRefreshKey, setGuildRefreshKey] = useState(0);
+
+  useEffect(() => {
+    function handlePopState() {
+      const requestedControls = window.location.pathname === "/controls";
+      if (requestedControls && !authLoading && !discordUser) {
+        window.history.replaceState(null, "", "/");
+        setControlsPage(false);
+        return;
+      }
+
+      setControlsPage(requestedControls);
+    }
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [authLoading, discordUser]);
 
   useEffect(() => {
     const messageList = logMessagesRef.current;
@@ -133,6 +164,48 @@ export default function App() {
       controller.abort();
       clearTimeout(timeout);
     };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetch("/api/auth/me", { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Backend returned ${response.status}`);
+        }
+
+        return (await response.json()) as {
+          enabled: boolean;
+          user: DiscordUser | null;
+        };
+      })
+      .then(({ enabled, user }) => {
+        setDiscordAuthEnabled(enabled);
+        setDiscordUser(user);
+        const path = user ? "/controls" : "/";
+        window.history.replaceState(null, "", path);
+        setControlsPage(Boolean(user));
+        setAuthError(null);
+      })
+      .catch((fetchError: unknown) => {
+        if (fetchError instanceof DOMException && fetchError.name === "AbortError") {
+          return;
+        }
+
+        setAuthError(
+          fetchError instanceof Error
+            ? fetchError.message
+            : "Could not check Discord sign-in",
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setAuthLoading(false);
+        }
+      });
+
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
@@ -316,6 +389,30 @@ export default function App() {
     }
   }
 
+  async function signOut() {
+    setSigningOut(true);
+    setAuthError(null);
+
+    try {
+      const response = await fetch("/api/auth/logout", { method: "POST" });
+      if (!response.ok) {
+        throw new Error(`Backend returned ${response.status}`);
+      }
+
+      setDiscordUser(null);
+      window.history.replaceState(null, "", "/");
+      setControlsPage(false);
+    } catch (signOutError: unknown) {
+      setAuthError(
+        signOutError instanceof Error
+          ? signOutError.message
+          : "Could not sign out of Discord",
+      );
+    } finally {
+      setSigningOut(false);
+    }
+  }
+
   async function submitSong(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setQueueing(true);
@@ -433,6 +530,47 @@ export default function App() {
   const selectedQueue =
     queue.guildId === guildId ? queue : { current: null, songs: [] };
 
+  if (!controlsPage || authLoading || !discordUser) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-cladd-bg p-6 text-white">
+        <main className="w-full max-w-md rounded-2xl border border-white/10 bg-black/20 p-8 text-center shadow-xl">
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/50">
+            Banger Player
+          </p>
+          <h1 className="mt-4 text-3xl font-bold">Sign in to continue</h1>
+          <p className="mt-3 text-white/65">
+            Sign in with Discord to open the music controls and queue songs
+            under your verified name.
+          </p>
+          {authError && (
+            <p role="alert" className="mt-4 text-sm text-red-300">
+              {authError}
+            </p>
+          )}
+          {!authLoading && !discordAuthEnabled && (
+            <p role="status" className="mt-4 text-sm text-amber-200">
+              Discord sign-in is not configured. Set the Discord OAuth
+              credentials and session secret in the backend environment, then
+              restart the backend.
+            </p>
+          )}
+          <button
+            className="mt-6 w-full rounded-lg bg-indigo-500 px-5 py-3 font-semibold text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-40"
+            type="button"
+            disabled={authLoading || !discordAuthEnabled}
+            onClick={() => window.location.assign("/api/auth/discord")}
+          >
+            {authLoading
+              ? "Checking sign-in…"
+              : discordAuthEnabled
+                ? "Sign in with Discord"
+                : "Discord sign-in unavailable"}
+          </button>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="grid min-h-screen place-items-center bg-cladd-bg p-6 text-white">
       <main className="w-full max-w-2xl rounded-2xl border border-white/10 bg-black/20 p-8 shadow-xl">
@@ -443,6 +581,22 @@ export default function App() {
         <p className="mt-2 text-white/65">
           Discord commands and the web API run together.
         </p>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white/5 px-4 py-3">
+          <p className="text-sm text-white/65">
+            Signed in as{" "}
+            <span className="font-semibold text-white">
+              {discordUser.username}
+            </span>
+          </p>
+          <button
+            className="rounded-md border border-white/15 px-3 py-2 text-sm text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+            type="button"
+            disabled={signingOut}
+            onClick={() => void signOut()}
+          >
+            {signingOut ? "Signing out…" : "Sign out"}
+          </button>
+        </div>
 
         <section className="mt-8 space-y-4" aria-live="polite">
           <StatusRow
@@ -575,13 +729,19 @@ export default function App() {
                   type="submit"
                   disabled={
                     queueing ||
+                    !discordUser ||
+                    authLoading ||
                     !songQuery.trim() ||
                     !guildId ||
                     !channelId ||
                     guildsLoading
                   }
                 >
-                  {queueing ? "Searching…" : "Play / queue"}
+                  {queueing
+                    ? "Searching…"
+                    : discordUser
+                      ? "Play / queue"
+                      : "Sign in to queue"}
                 </button>
               </div>
             </label>
@@ -733,6 +893,11 @@ export default function App() {
                   <p className="mt-1 text-sm text-white/50">
                     {selectedQueue.current.duration}
                   </p>
+                  <p className="mt-1 text-xs text-white/45">
+                    Queued by{" "}
+                    {selectedQueue.current.requester?.username ??
+                      "Unknown requester"}
+                  </p>
                 </li>
               )}
               {selectedQueue.songs.map((song, index) => (
@@ -746,6 +911,9 @@ export default function App() {
                     </p>
                     <p className="mt-1 text-sm text-white/50">
                       {song.duration}
+                    </p>
+                    <p className="mt-1 text-xs text-white/45">
+                      Queued by {song.requester?.username ?? "Unknown requester"}
                     </p>
                   </div>
                   <span className="shrink-0 text-sm text-white/50">
