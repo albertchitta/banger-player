@@ -7,7 +7,7 @@ import "./index.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <CladdProvider>
+    <CladdProvider theme="dark" accentColor="brand">
       <App />
     </CladdProvider>
   </StrictMode>,
