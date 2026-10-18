@@ -3,7 +3,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://responsible-generous-slots-lens.trycloudflare.com/api/:path*"
+      "destination": "https://signed-limits-expenditures-authority.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",
