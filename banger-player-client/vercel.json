@@ -3,7 +3,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://different-cent-democrats-illustration.trycloudflare.com/api/:path*"
+      "destination": "https://logistics-anybody-tamil-produced.trycloudflare.com/api/:path*"
     },
     {
       "source": "/(.*)",
